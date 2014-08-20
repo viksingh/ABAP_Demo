@@ -1,0 +1,478 @@
+REPORT  ztestflight.
+
+TABLES: sflight.
+
+PARAMETERS: p_carrid TYPE s_carr_id.
+SELECT-OPTIONS: s_connid FOR sflight-connid,
+                s_mxseat FOR sflight-seatsmax.
+
+DATA: gt_flight TYPE STANDARD TABLE OF sflight WITH HEADER LINE.
+DATA: gt_master_flight TYPE STANDARD TABLE OF sflight WITH HEADER LINE.
+DATA: gs_fieldcat TYPE lvc_s_fcat,
+      gt_fieldcat TYPE lvc_t_fcat.
+
+
+DATA: ok_code LIKE sy-ucomm,
+      save_ok LIKE sy-ucomm,
+      g_container TYPE scrfname VALUE 'CC',
+      grid1  TYPE REF TO cl_gui_alv_grid,
+      g_custom_container TYPE REF TO cl_gui_custom_container,
+      gs_layout TYPE lvc_s_layo,
+      gt_expr         TYPE rsds_texpr,
+      gt_fldranges    TYPE rsds_trange,
+      gt_restr        TYPE sscr_restrict_ds,
+      gt_tables LIKE rsdstabs OCCURS 10 WITH HEADER LINE,
+      gt_fields LIKE rsdsfields OCCURS 10 WITH HEADER LINE,
+      gt_rsdsevents   TYPE rsdsevents OCCURS 5 WITH HEADER LINE,
+      gt_rsdsevtfld   TYPE rsdsevflds OCCURS 5 WITH HEADER LINE.
+DATA trange    TYPE rsds_trange.
+DATA ds_range  TYPE rsds_range.
+DATA frange    TYPE rsds_frange.
+
+DATA: gv_selid TYPE rsdynsel-selid,
+      gt_where        TYPE rsds_twhere,
+      gv_list_level TYPE i.
+
+CONSTANTS: gc_sel_mem TYPE char10 VALUE 'ZTESTFLIGHT'.
+
+
+
+DATA  gv_curr_prog TYPE syrepid.
+
+DATA: gt_seltab TYPE STANDARD TABLE OF rsparams.
+
+AT SELECTION-SCREEN OUTPUT.
+
+  PERFORM update_screen_values.
+
+INITIALIZATION.
+
+
+
+START-OF-SELECTION.
+
+  SELECT *
+  FROM sflight
+  INTO TABLE gt_flight
+  WHERE carrid = p_carrid
+   AND connid IN s_connid
+   AND seatsmax IN s_mxseat.
+
+  PERFORM f_get_selections_values.
+
+END-OF-SELECTION.
+
+  CLEAR gv_list_level .
+
+  PERFORM f_get_selections_values.
+
+
+
+  CALL SCREEN 100.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+
+
+
+  SET PF-STATUS 'MAIN100'.
+  SET TITLEBAR 'MAIN100'.
+  IF g_custom_container IS NOT BOUND.
+    CREATE OBJECT g_custom_container
+      EXPORTING
+        container_name = g_container.
+    CREATE OBJECT grid1
+      EXPORTING
+        i_parent = g_custom_container.
+
+    gs_layout-stylefname = 'CELLTAB'.
+    gs_layout-sel_mode   = 'D'.
+
+    PERFORM set_fieldcat USING gt_fieldcat.
+
+    CALL METHOD grid1->set_table_for_first_display
+      EXPORTING
+        i_structure_name = 'SFLIGHT'
+        is_layout        = gs_layout
+      CHANGING
+        it_outtab        = gt_flight[].
+*        it_Fieldcatalog = gt_fieldcat.
+
+  ELSE.
+
+    CALL METHOD grid1->refresh_table_display.
+
+
+
+  ENDIF.
+
+ENDMODULE.                 " STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  BREAK-POINT.
+
+  IF sy-ucomm = 'SWITCH'.
+    CALL SCREEN 100.
+  ELSEIF sy-ucomm = 'SEAR'.
+
+    PERFORM do_find.
+
+  ELSEIF sy-ucomm = 'EXIT'.
+
+    IF gv_list_level = 0.
+      EXPORT gt_seltab TO MEMORY ID gc_sel_mem.
+      CALL TRANSACTION 'ZFLIGHT'.
+
+    ELSE.
+      gv_list_level = gv_list_level - 1.
+      gt_flight[] = gt_master_flight[].
+      CALL SCREEN 100.
+    ENDIF.
+
+
+
+  ENDIF.
+
+ENDMODULE.                 " USER_COMMAND_0100  INPUT
+
+*&---------------------------------------------------------------------*
+*&      Form  SET_FIELDCAT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->RT_FIELDCAT  text
+*----------------------------------------------------------------------*
+FORM set_fieldcat  USING    rt_fieldcat TYPE lvc_t_fcat.
+
+  DATA: ls_fieldcat TYPE lvc_s_fcat,
+        lt_fieldcat TYPE lvc_t_fcat,
+        n TYPE i.                                           "#EC NEEDED
+
+  CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+   EXPORTING
+     i_structure_name             = 'SFLIGHT'
+    CHANGING
+      ct_fieldcat                  = gt_fieldcat
+*    EXCEPTIONS
+*      INCONSISTENT_INTERFACE       = 1
+*      PROGRAM_ERROR                = 2
+*      OTHERS                       = 3
+            .
+  IF sy-subrc <> 0.                                         "#EC *
+* Implement suitable error handling here
+  ENDIF.
+
+  lt_fieldcat = rt_fieldcat.
+
+* add count field
+  ls_fieldcat-fieldname = 'COUNT'.
+  ls_fieldcat-inttype   = 'I'.
+  ls_fieldcat-datatype  = 'INT2'.
+  ls_fieldcat-scrtext_s = 'Count'.                          "#EC NOTEXT
+  ls_fieldcat-scrtext_m = 'Count'.                          "#EC NOTEXT
+  ls_fieldcat-scrtext_l = 'Counter'.                        "#EC NOTEXT
+  ls_fieldcat-col_pos = '1'.
+  ls_fieldcat-col_opt = 'X'.
+  ls_fieldcat-intlen    = 2.
+  ls_fieldcat-outputlen = 2.
+
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  rt_fieldcat = lt_fieldcat.
+
+ENDFORM.                    " SET_FIELDCAT
+*&---------------------------------------------------------------------*
+*&      Module  CANCEL  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE cancel INPUT.
+  IF gv_list_level = 0.
+*leave to screen 0.
+    EXPORT gt_seltab TO MEMORY ID gc_sel_mem.
+    CALL TRANSACTION 'ZFLIGHT'.
+  ENDIF.
+
+ENDMODULE.                 " CANCEL  INPUT
+*&---------------------------------------------------------------------*
+*&      Form  F_GET_SELECTIONS_VALUES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM f_get_selections_values.
+
+  REFRESH gt_seltab.
+
+  gv_curr_prog = sy-repid.
+
+  CALL FUNCTION 'RS_REFRESH_FROM_SELECTOPTIONS'
+    EXPORTING
+      curr_report     = gv_curr_prog  " program Name
+    TABLES
+      selection_table = gt_seltab
+    EXCEPTIONS
+      not_found       = 1
+      no_report       = 2.
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+
+ENDFORM.                                 " F_get_selections_values
+*&---------------------------------------------------------------------*
+*&      Form  DO_FIND
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM do_find .
+
+  DATA BEGIN OF qcat.                    "Selections View for
+          INCLUDE STRUCTURE rsdsqcat.    "Free Selectoptions
+  DATA END OF qcat.
+
+
+  DATA:   e_noactflds    TYPE sy-tfill,
+          gv_title        LIKE sy-title,
+          lw_expr_wa TYPE rsdsexpr,
+          lw_expr TYPE rsds_expr,
+          lw_flight TYPE sflight.
+
+  DATA: lt_flight TYPE STANDARD TABLE OF sflight.
+
+  CONSTANTS: gc_tbmaxsel(10)    TYPE c    VALUE 'TBMAXSEL',  " Optionsfeldname
+             gc_maxsel(10)      TYPE c    VALUE '200',       " Max. sel. records
+             gc_sbuqout(10)     TYPE c    VALUE 'SBUQOUT'.   " Name der Optstrukt.
+  BREAK-POINT.
+
+  DATA:
+    lwa_optlist       TYPE sscr_opt_list,
+    lwa_restriction TYPE sscr_restrict_ds.
+
+
+
+  gt_master_flight[] = gt_flight[].
+
+  gt_tables-prim_tab = 'SFLIGHT'.
+  APPEND gt_tables.
+
+  gt_fields-tablename = 'SFLIGHT'.
+  gt_fields-fieldname = 'CONNID'.
+  gt_fields-type = 'N'.
+  gt_fields-where_leng = 4.
+  APPEND gt_fields.
+
+
+  CALL FUNCTION 'FREE_SELECTIONS_INIT'
+    EXPORTING
+      expressions              = gt_expr
+      kind                     = 'F'
+      field_groups_key         = qcat
+      restriction              = lwa_restriction
+    IMPORTING
+      selection_id             = gv_selid
+      expressions              = gt_expr
+      field_ranges             = gt_fldranges
+    TABLES
+      tables_tab               = gt_tables
+      fields_tab               = gt_fields
+    EXCEPTIONS
+      fields_incomplete        = 01
+      fields_no_join           = 02
+      field_not_found          = 03
+      no_tables                = 04
+      table_not_found          = 05
+      expression_not_supported = 06
+      incorrect_expression     = 07
+      illegal_kind             = 08
+      area_not_found           = 09
+      inconsistent_area        = 10
+      kind_f_no_fields_left    = 11
+      kind_f_no_fields         = 12
+      too_many_fields          = 13.
+  CHECK sy-subrc = 0.
+  CALL FUNCTION 'FREE_SELECTIONS_DIALOG'
+    EXPORTING
+      selection_id    = gv_selid
+      title           = gv_title
+      status          = 1
+    IMPORTING
+      expressions     = gt_expr
+      field_ranges    = gt_fldranges
+    TABLES
+      fields_tab      = gt_fields
+    EXCEPTIONS
+      internal_error  = 01
+      no_action       = 02
+      selid_not_found = 03
+      OTHERS          = 04.
+
+
+  PERFORM selection_range_read TABLES s_connid USING 'SFLIGHT' 'CONNID'.
+
+
+
+  LOOP AT gt_flight WHERE connid IN s_connid.
+    APPEND gt_flight TO lt_flight.
+  ENDLOOP.
+
+  REFRESH gt_flight.
+
+  gt_flight[] = lt_flight[].
+
+  gv_list_level = gv_list_level + 1.
+  CALL SCREEN 100.
+
+
+ENDFORM.                    " DO_FIND
+*&---------------------------------------------------------------------*
+*&      Form  SELECTION_RANGE_READ
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_S_CONNID  text
+*      -->P_0556   text
+*      -->P_0557   text
+*----------------------------------------------------------------------*
+FORM selection_range_read TABLES selopt
+                   USING  value(tablename) TYPE c
+                          value(fieldname) TYPE c.
+  FIELD-SYMBOLS: <sym_frange_selopt_t>,
+                 <sym_selopt>,
+                 <tab_line>.
+  READ TABLE gt_fldranges WITH KEY tablename INTO ds_range.
+  READ TABLE ds_range-frange_t WITH KEY fieldname INTO frange.
+  ASSIGN LOCAL COPY OF INITIAL LINE OF frange-selopt_t TO <tab_line>.
+  WHILE sy-subrc = 0.
+    READ TABLE frange-selopt_t INDEX sy-index INTO <tab_line>.
+    IF sy-subrc EQ 0.
+      DO 4 TIMES.
+        ASSIGN COMPONENT sy-index OF STRUCTURE <tab_line> TO
+        <sym_frange_selopt_t>.
+        ASSIGN COMPONENT sy-index OF STRUCTURE selopt TO
+        <sym_selopt>.
+        <sym_selopt> = <sym_frange_selopt_t>.
+      ENDDO.
+      APPEND selopt.
+    ENDIF.
+  ENDWHILE.
+ENDFORM.                    "selection_range_read
+*&---------------------------------------------------------------------*
+*&      Form  UPDATE_SCREEN_VALUES
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM update_screen_values .
+
+
+  DATA: lt_params TYPE rsti_t_van,
+         lt_selops TYPE rsti_t_van,
+         lt_value TYPE rsparams_tt,
+         lw_param TYPE vanz,
+         lo_values TYPE REF TO rsparams,
+         lv_attr TYPE string,
+         lv_attr_tab TYPE string,
+         lv_kind TYPE string,
+         lv_sign TYPE string,
+         lv_low TYPE string,
+         lv_high TYPE string.
+
+  FIELD-SYMBOLS: <fs_attr_val> TYPE any,
+                 <fs_attr_main> TYPE any,
+                 <fs_attr_sign> TYPE any,
+                 <fs_attr_option> TYPE any,
+                 <fs_attr_low> TYPE any,
+                 <fs_attr_high> TYPE any,
+                 <fs_attr_tab> TYPE STANDARD TABLE.
+
+
+
+  IMPORT gt_seltab FROM MEMORY ID gc_sel_mem.
+
+  IF NOT gt_seltab[] IS INITIAL.
+
+    CALL FUNCTION 'RS_VARIANT_CONTENTS'
+      EXPORTING
+        report               = 'ZTESTFLIGHT'
+        variant              = 'ZFLIGHT_VAR'
+      TABLES
+        l_params             = lt_params
+        l_selop              = lt_selops
+        valutab              = lt_value
+      EXCEPTIONS
+        variant_non_existent = 1
+        variant_obsolete     = 2
+        OTHERS               = 3.
+    IF sy-subrc <> 0.
+* Implement suitable error handling here
+    ENDIF.
+
+
+    LOOP AT lt_params INTO lw_param.
+      READ TABLE gt_seltab REFERENCE INTO lo_values WITH KEY selname = lw_param-name.
+      IF sy-subrc = 0.
+        lv_attr = lo_values->selname.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_val>.
+        <fs_attr_val> = lo_values->low.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT lt_selops INTO lw_param.
+      READ TABLE gt_seltab REFERENCE INTO lo_values WITH KEY selname = lw_param-name.
+      IF sy-subrc = 0.
+
+        CONCATENATE lo_values->selname 'SIGN' INTO lv_attr SEPARATED BY '-'.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_sign>.
+        <fs_attr_sign> = lo_values->sign.
+
+
+        CONCATENATE lo_values->selname 'OPTION' INTO lv_attr SEPARATED BY '-'.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_option>.
+        <fs_attr_option> = lo_values->option.
+
+        CONCATENATE lo_values->selname 'LOW' INTO lv_attr SEPARATED BY '-'.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_low>.
+        <fs_attr_low> = lo_values->low.
+
+        CONCATENATE lo_values->selname 'HIGH' INTO lv_attr SEPARATED BY '-'.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_high>.
+        <fs_attr_high> = lo_values->high.
+
+        lv_attr = lo_values->selname.
+        TRANSLATE lv_attr TO UPPER CASE.
+        ASSIGN (lv_attr) TO <fs_attr_main>.
+
+        CONCATENATE lv_attr '[]' INTO lv_attr_tab.
+        ASSIGN (lv_attr_tab) TO <fs_attr_tab>.
+
+        IF lo_values->low IS NOT INITIAL OR lo_values->high IS NOT INITIAL.
+          REFRESH <fs_attr_tab>.
+          APPEND <fs_attr_main> TO <fs_attr_tab>.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
+  ENDIF.
+
+ENDFORM.                    " UPDATE_SCREEN_VALUES
