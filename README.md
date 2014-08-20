@@ -1,4 +1,4 @@
 ABAP_Demo
 =========
 
-Selection Screen Bu
+Selection Screen Bug Demo
