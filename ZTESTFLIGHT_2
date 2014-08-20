@@ -33,7 +33,7 @@ DATA: gv_selid TYPE rsdynsel-selid,
       gt_where        TYPE rsds_twhere,
       gv_list_level TYPE i.
 
-CONSTANTS: gc_sel_mem TYPE char10 VALUE 'ZTESTFLIGHT'.
+CONSTANTS: gc_sel_mem TYPE char10 VALUE 'ZTESTFLG'.
 
 
 
@@ -127,11 +127,7 @@ MODULE user_command_0100 INPUT.
 
   ELSEIF sy-ucomm = 'EXIT'.
 
-    IF gv_list_level = 0.
-      EXPORT gt_seltab TO MEMORY ID gc_sel_mem.
-      CALL TRANSACTION 'ZFLIGHT'.
-
-    ELSE.
+    IF gv_list_level > 0.
       gv_list_level = gv_list_level - 1.
       gt_flight[] = gt_master_flight[].
       CALL SCREEN 100.
@@ -198,7 +194,12 @@ MODULE cancel INPUT.
   IF gv_list_level = 0.
 *leave to screen 0.
     EXPORT gt_seltab TO MEMORY ID gc_sel_mem.
-    CALL TRANSACTION 'ZFLIGHT'.
+
+    SUBMIT zsubmit_flight
+            WITH report EQ 'ZTESTFLIGHT'
+            WITH variant = 'ZFLIGHT_VAR'
+            WITH SELECTION-TABLE gt_seltab .
+
   ENDIF.
 
 ENDMODULE.                 " CANCEL  INPUT
