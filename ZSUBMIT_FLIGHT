@@ -1,0 +1,23 @@
+*&---------------------------------------------------------------------*
+*& Report  ZSUBMIT_FLIGHT
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  ZSUBMIT_FLIGHT.
+
+TABLES:
+  RSVAR.
+
+PARAMETERS:
+   VARIANT LIKE RSVAR-VARIANTT,
+   REPORT  LIKE RSVAR-REPORT DEFAULT 'ZTESTFLIGHT'.
+
+
+END-OF-SELECTION.
+
+    SUBMIT (REPORT) WITH VARIANT  = VARIANT
+                    USING SELECTION-SET VARIANT
+                    VIA SELECTION-SCREEN.
